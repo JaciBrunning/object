@@ -27,8 +27,6 @@ pub struct Builder<'data> {
     ///
     /// Use to set the file class when writing the ELF file.
     pub is_64: bool,
-    /// The alignment of [`elf::PT_LOAD`] segments.
-    pub load_align: u64,
     /// The file header.
     pub header: Header,
     /// The segment table.
@@ -64,7 +62,6 @@ impl<'data> Builder<'data> {
         Self {
             endian,
             is_64,
-            load_align: 0,
             header: Header::default(),
             segments: Segments::new(),
             sections: Sections::new(),
@@ -118,7 +115,6 @@ impl<'data> Builder<'data> {
         let mut builder = Builder {
             endian,
             is_64: header.is_type_64(),
-            load_align: 0,
             header: Header {
                 os_abi: header.e_ident().os_abi,
                 abi_version: header.e_ident().abi_version,
@@ -141,14 +137,13 @@ impl<'data> Builder<'data> {
             gnu_hash_bucket_count: 0,
             marker: PhantomData,
         };
+        
+        let mut last_alignment = 0;
 
         for segment in segments {
             if segment.p_type(endian) == elf::PT_LOAD {
                 let p_align = segment.p_align(endian).into();
-                if builder.load_align != 0 && builder.load_align != p_align {
-                    return Err(Error::new("Unsupported alignments for PT_LOAD segments"));
-                }
-                builder.load_align = p_align;
+                last_alignment = p_align;
             }
 
             let id = builder.segments.next_id();
@@ -167,7 +162,7 @@ impl<'data> Builder<'data> {
                 marker: PhantomData,
             });
         }
-        if !builder.segments.is_empty() && builder.load_align == 0 {
+        if !builder.segments.is_empty() && last_alignment == 0 {
             // There should be at least one PT_LOAD segment.
             return Err(Error::new("Unsupported segments without a PT_LOAD segment"));
         }
